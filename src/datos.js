@@ -1,4 +1,4 @@
-import { db, storage, doc, setDoc, onSnapshot, ref, uploadString, getDownloadURL, deleteObject } from "./firebase.js";
+import { db, storage, doc, setDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject, collection, addDoc, query, orderBy, limit, runTransaction, increment } from "./firebase.js";
 
 // ── Datos por defecto ─────────────────────────────────────────────
 export const BURGERS_DEFAULT = [
@@ -38,8 +38,20 @@ export const BEBIDAS_DEFAULT = [
   { id: "b1", nombre: "Gaseosa", detalle: "Pepsi / Pepsi Black / 7UP / Mirinda 354cc", precio: 3000, disponible: true },
 ];
 
+export const ENVIOS_DEFAULT = [
+  { id: "env1", nombre: "Fisherton", precio: 2500 },
+  { id: "env2", nombre: "Funes",     precio: 3000 },
+];
+
+export const ACOMP_DEFAULT = [
+  { id: "ac1", nombre: "Papas fritas",      precio: 2500, disponible: true },
+  { id: "ac2", nombre: "Aros de cebolla",   precio: 5000, disponible: true },
+  { id: "ac3", nombre: "Papas con cheddar", precio: 6000, disponible: true },
+  { id: "ac4", nombre: "Nuggets",           precio: 6000, disponible: true },
+];
+
 // ── Firestore: menú ───────────────────────────────────────────────
-const MENU_DOC = doc(db, "pedidos-online", "menu");
+const MENU_DOC = doc(db, "pedidos-online-pic", "menu");
 
 export async function saveMenuFirestore(data) {
   await setDoc(MENU_DOC, {
@@ -47,19 +59,23 @@ export async function saveMenuFirestore(data) {
     guarniciones: JSON.stringify(data.guarniciones),
     extras:       JSON.stringify(data.extras),
     bebidas:      JSON.stringify(data.bebidas),
+    acomp:        JSON.stringify(data.acomp),
+    envios:       JSON.stringify(data.envios),
   });
 }
 
 // Suscripción en tiempo real — llama a callback({ burgers, guarniciones, extras, bebidas })
 export function subscribeMenu(callback) {
   return onSnapshot(MENU_DOC, snap => {
-    if (!snap.exists()) { callback({ burgers: BURGERS_DEFAULT, guarniciones: GUARNICIONES_DEFAULT, extras: EXTRAS_DEFAULT, bebidas: BEBIDAS_DEFAULT }); return; }
+    if (!snap.exists()) { callback({ burgers: BURGERS_DEFAULT, guarniciones: GUARNICIONES_DEFAULT, extras: EXTRAS_DEFAULT, bebidas: BEBIDAS_DEFAULT, acomp: ACOMP_DEFAULT, envios: ENVIOS_DEFAULT }); return; }
     const d = snap.data();
     callback({
       burgers:      safeJSON(d.burgers,      BURGERS_DEFAULT),
       guarniciones: safeJSON(d.guarniciones, GUARNICIONES_DEFAULT),
       extras:       safeJSON(d.extras,       EXTRAS_DEFAULT),
       bebidas:      safeJSON(d.bebidas,      BEBIDAS_DEFAULT),
+      acomp:        safeJSON(d.acomp,        ACOMP_DEFAULT),
+      envios:       safeJSON(d.envios,       ENVIOS_DEFAULT),
     });
   });
 }
@@ -70,9 +86,9 @@ function safeJSON(str, fallback) {
 
 // ── Firebase Storage: fotos ───────────────────────────────────────
 // path: pedidos-fotos/{tipo}/{id}.jpg
-export async function uploadFoto(tipo, id, base64) {
+export async function uploadFoto(tipo, id, blob) {
   const storageRef = ref(storage, `pedidos-fotos/${tipo}/${id}.jpg`);
-  await uploadString(storageRef, base64, "data_url");
+  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
   return await getDownloadURL(storageRef);
 }
 
@@ -96,8 +112,26 @@ export function getFotoCached(tipo, id) { return fotoCache[`${tipo}-${id}`] || n
 export function setFotoCache(tipo, id, url) { fotoCache[`${tipo}-${id}`] = url; }
 export function clearFotoCache(tipo, id) { delete fotoCache[`${tipo}-${id}`]; }
 
+// ── Estado (abierto/cerrado) ───────────────────────────────────────
+const ESTADO_DOC = doc(db, "pedidos-online-pic", "estado");
+
+export async function saveEstado(data) {
+  await setDoc(ESTADO_DOC, data, { merge: true });
+}
+
+export function subscribeEstado(callback) {
+  return onSnapshot(ESTADO_DOC, snap => {
+    const d = snap.exists() ? snap.data() : {};
+    callback({
+      abierto:    d.abierto    !== false,
+      horaDesde:  d.horaDesde  || "19:30",
+      horaHasta:  d.horaHasta  || "23:00",
+    });
+  });
+}
+
 // ── Zona delivery ─────────────────────────────────────────────────
-const ZONA_DOC = doc(db, "pedidos-online", "zona");
+const ZONA_DOC = doc(db, "pedidos-online-pic", "zona");
 export async function saveZonaFirestore(zona) { await setDoc(ZONA_DOC, { zona: JSON.stringify(zona) }); }
 export function subscribeZona(callback) {
   return onSnapshot(ZONA_DOC, snap => {
@@ -106,19 +140,82 @@ export function subscribeZona(callback) {
   });
 }
 
+// ── Pedidos ───────────────────────────────────────────────────────
+const COUNTER_DOC  = doc(db, "pedidos-online-pic", "contador");
+const PEDIDOS_COL  = collection(db, "pedidos-pic");
+const CONFIG_DOC   = doc(db, "pedidos-online-pic", "config");
+
+export async function saveOrder(orderData) {
+  // Contador + guardado del pedido dentro de la misma transacción atómica.
+  // Así si addDoc falla, el contador NO avanza y el reintento obtiene el mismo número.
+  let numeroPedido = 1;
+  const hora  = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  const fecha = new Date().toLocaleDateString("es-AR");
+
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(COUNTER_DOC);
+    const actual = snap.exists() ? (snap.data().ultimo || 0) : 0;
+    numeroPedido = actual >= 100 ? 1 : actual + 1;
+    tx.set(COUNTER_DOC, { ultimo: numeroPedido });
+
+    const newRef = doc(PEDIDOS_COL);
+    tx.set(newRef, {
+      ...orderData,
+      numero: numeroPedido,
+      hora,
+      fecha,
+      timestamp: Date.now(),
+      estado: "pendiente",
+    });
+  });
+
+  return numeroPedido;
+}
+
+export function subscribePedidos(callback, onError) {
+  const q = query(PEDIDOS_COL, orderBy("timestamp", "desc"), limit(200));
+  return onSnapshot(q,
+    snap => { callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))); },
+    err  => { if (onError) onError(err); else console.error("subscribePedidos error:", err); }
+  );
+}
+
+export async function updatePedidoEstado(id, estado) {
+  await setDoc(doc(db, "pedidos-pic", id), { estado }, { merge: true });
+}
+
+export async function marcarImpreso(id) {
+  await setDoc(doc(db, "pedidos-pic", id), { impreso: true }, { merge: true });
+}
+
+export async function saveConfigImpresoras(config) {
+  await setDoc(CONFIG_DOC, { impresoras: JSON.stringify(config) });
+}
+export function subscribeConfig(callback) {
+  return onSnapshot(CONFIG_DOC, snap => {
+    if (!snap.exists()) { callback({ ipCocina: "", ipBarra: "" }); return; }
+    callback(safeJSON(snap.data().impresoras, { ipCocina: "", ipBarra: "" }));
+  });
+}
+
 // ── Comprimir imagen ──────────────────────────────────────────────
-export function comprimirImagen(file, maxPx = 700, quality = 0.78) {
-  return new Promise(resolve => {
+export function comprimirImagen(file, maxPx = 600, quality = 0.72) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    reader.onerror = reject;
     reader.onload = e => {
       const img = new Image();
+      img.onerror = reject;
       img.onload = () => {
         const ratio = Math.min(maxPx / img.width, maxPx / img.height, 1);
         const canvas = document.createElement("canvas");
         canvas.width  = Math.round(img.width  * ratio);
         canvas.height = Math.round(img.height * ratio);
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error("No se pudo comprimir la imagen"));
+        }, "image/jpeg", quality);
       };
       img.src = e.target.result;
     };

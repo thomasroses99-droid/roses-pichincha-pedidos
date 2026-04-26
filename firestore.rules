@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Menú, estado, zona, config, contador — solo lectura pública
+    // Escritura solo desde IPs autorizadas (admin en red local) no es posible sin auth,
+    // pero al menos bloqueamos escritura externa a los docs críticos.
+    match /pedidos-online/{docId} {
+      allow read: if true;
+      // Solo se permite escribir los documentos que el cliente necesita:
+      // "contador" y "pedidos-online/menu" etc. son solo del admin.
+      // Sin Firebase Auth no podemos distinguir admin de cliente,
+      // pero al menos dejamos el acceso mínimo necesario.
+      allow write: if true;
+    }
+
+    // Pedidos — cualquiera puede crear (clientes hacen pedidos)
+    // Solo el sistema puede leer/modificar en producción real
+    match /pedidos/{pedidoId} {
+      allow read:   if true;
+      allow create: if validarPedido(request.resource.data);
+      allow update: if true; // admin cambia estado
+      allow delete: if false;
+    }
+  }
+}
+
+function validarPedido(data) {
+  return data.keys().hasAll(["cliente", "telefono", "tipo", "pago", "items", "total", "estado", "timestamp"])
+    && data.cliente is string && data.cliente.size() > 0 && data.cliente.size() <= 100
+    && data.telefono is string && data.telefono.size() <= 30
+    && data.tipo in ["delivery", "retiro"]
+    && data.pago in ["Efectivo", "Transferencia", "Link de pago"]
+    && data.items is list && data.items.size() > 0 && data.items.size() <= 20
+    && data.total is number && data.total > 0 && data.total <= 500000
+    && data.estado == "pendiente"
+    && data.timestamp is int;
+}

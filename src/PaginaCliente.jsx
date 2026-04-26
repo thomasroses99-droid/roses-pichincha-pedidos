@@ -1,14 +1,44 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  subscribeMenu, subscribeZona,
+  subscribeMenu, subscribeZona, subscribeEstado,
   getFotoURL, getFotoCached, setFotoCache,
-  fmt,
+  saveOrder, fmt,
 } from "./datos.js";
 
-const WA_NUMBER = "543417408076";
+function parseMins(hhmm) {
+  const [h, m] = (hhmm || "00:00").split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+function dentroDeHorario(horaDesde, horaHasta) {
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  return mins >= parseMins(horaDesde) && mins < parseMins(horaHasta);
+}
+
+const WA_NUMBER = "543417196022";
 const GD = "#1a3a25"; // verde oscuro
 const G  = "#1a7a3a"; // verde medio
 const GL = "#e8f5ec"; // verde claro
+
+
+const BURGER_IMGS = {
+  "CHEESEBURGER":  "/images/burgers/cheeseburger.jpg",
+  "ROSES":         "/images/burgers/roses.jpg",
+  "1967":          "/images/burgers/1967.jpg",
+  "CLASSIC":       "/images/burgers/classic.jpg",
+  "CHEESE ONION":  "/images/burgers/cheese-onion.jpg",
+  "COWBOY":        "/images/burgers/cowboy.jpg",
+  "SMOKEY BACON":  "/images/burgers/smokey-bacon.jpg",
+  "BLUE CHEESE":   "/images/burgers/blue-cheese.jpg",
+  "STACKED ONION": "/images/burgers/stacked-onion.jpg",
+  "CHEESE BACON":  "/images/burgers/cheese-bacon.jpg",
+  "BIGGIE BURGER": "/images/burgers/biggie-burger.jpg",
+  "CRISPY GARLIC": "/images/burgers/crispy-garlic.jpg",
+  "RUBY CLOVE":    "/images/burgers/ruby-clove.jpg",
+};
+function getBurgerImg(nombre) {
+  return BURGER_IMGS[nombre?.toUpperCase()] || null;
+}
 
 // ── Geo ───────────────────────────────────────────────────────────
 function puntoDentroDePoligono(lat, lng, poly) {
@@ -19,10 +49,16 @@ function puntoDentroDePoligono(lat, lng, poly) {
   }
   return inside;
 }
+const GMAPS_KEY = "AIzaSyDnzXq9Vl8vuZJvq_2owpp0MI-JtLbFWjw";
 async function geocodificar(dir) {
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dir)}&limit=1`, { headers: { "Accept-Language": "es" } });
+  const q = encodeURIComponent(dir + ", Rosario, Santa Fe, Argentina");
+  const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${q}&key=${GMAPS_KEY}&region=ar&language=es`, { signal: AbortSignal.timeout(8000) });
   const d = await r.json();
-  return d.length ? { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) } : null;
+  if (d.status === "OK" && d.results.length > 0) {
+    const loc = d.results[0].geometry.location;
+    return { lat: loc.lat, lng: loc.lng };
+  }
+  return null;
 }
 
 // ── Hook fotos ────────────────────────────────────────────────────
@@ -70,10 +106,12 @@ function MapaCliente({ coords, zona }) {
 }
 
 // ── Modal personalización burger ──────────────────────────────────
-function ModalBurger({ burger, fotoUrl, extras, guarniciones, fotoExtras, fotoGuar, onAgregar, onCerrar }) {
-  const [tamano, setTamano] = useState("simple");
-  const [guarnicion, setGuarnicion] = useState(null);
+function ModalBurger({ burger, fotoUrl, extras, acompList, fotoExtras, onAgregar, onCerrar }) {
+  const [tamano, setTamano]     = useState("simple");
+  const [medallon, setMedallon] = useState("carne");
+  const [acomp, setAcomp]       = useState(null);
   const [extrasEleg, setExtrasEleg] = useState([]);
+  const [aclaracion, setAclaracion] = useState("");
 
   const tamanos = [
     { key: "simple", label: "Simple",  precio: burger.simple },
@@ -81,14 +119,14 @@ function ModalBurger({ burger, fotoUrl, extras, guarniciones, fotoExtras, fotoGu
     { key: "triple", label: "Triple",  precio: burger.triple },
   ];
   const tObj = tamanos.find(t => t.key === tamano);
-  const gObj = guarniciones.find(g => g.id === guarnicion);
+  const acompObj = acompList.find(a => a.id === acomp);
   const extTotal = extrasEleg.reduce((s, id) => s + (extras.find(e => e.id === id)?.precio || 0), 0);
-  const total = tObj.precio + (gObj?.precio || 0) + extTotal;
+  const total = tObj.precio + (acompObj?.precio || 0) + extTotal;
 
   function toggleExtra(id) { setExtrasEleg(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]); }
 
   function agregar() {
-    onAgregar({ cartId: Date.now() + Math.random(), tipo: "burger", nombre: burger.nombre, tamano: tObj.label, guarnicion: gObj ? { nombre: `${gObj.nombre} (${gObj.detalle})`, precio: gObj.precio } : null, extras: extrasEleg.map(id => extras.find(e => e.id === id)).filter(Boolean), precio: total });
+    onAgregar({ cartId: Date.now() + Math.random(), tipo: "burger", nombre: burger.nombre, tamano: tObj.label, medallon, acomp: acompObj ? { nombre: acompObj.nombre, precio: acompObj.precio } : null, extras: extrasEleg.map(id => extras.find(e => e.id === id)).filter(Boolean), aclaracion: aclaracion.trim(), precio: total });
     onCerrar();
   }
 
@@ -120,13 +158,27 @@ function ModalBurger({ burger, fotoUrl, extras, guarniciones, fotoExtras, fotoGu
             </div>
           </Bloque>
 
-          {/* Guarnición */}
-          <Bloque titulo="GUARNICIÓN" sub="opcional">
-            <OpcionRow label="Sin guarnición" selected={guarnicion === null} onClick={() => setGuarnicion(null)} />
-            {guarniciones.filter(g => g.disponible).map(g => (
-              <OpcionRow key={g.id} label={g.nombre} sub={g.detalle} precio={g.precio} foto={fotoGuar[g.id]} selected={guarnicion === g.id} onClick={() => setGuarnicion(g.id)} />
-            ))}
+          {/* Medallón */}
+          <Bloque titulo="MEDALLÓN">
+            <div style={{ display: "flex", gap: 8 }}>
+              {[{ key: "carne", label: "🥩 Carne" }, { key: "vegetariano", label: "🥦 Vegetariano" }].map(op => (
+                <button key={op.key} onClick={() => setMedallon(op.key)}
+                  style={{ flex: 1, padding: "12px 4px", borderRadius: 12, border: `2px solid ${medallon === op.key ? G : "#e0e0e0"}`, background: medallon === op.key ? GL : "#fff", cursor: "pointer", textAlign: "center" }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: medallon === op.key ? GD : "#555" }}>{op.label}</div>
+                </button>
+              ))}
+            </div>
           </Bloque>
+
+          {/* Acompañamiento combo */}
+          {acompList.filter(a => a.disponible).length > 0 && (
+            <Bloque titulo="ACOMPAÑAMIENTO" sub="opcional">
+              <OpcionRow label="Sin acompañamiento" selected={acomp === null} onClick={() => setAcomp(null)} />
+              {acompList.filter(a => a.disponible).map(a => (
+                <OpcionRow key={a.id} label={a.nombre} precio={a.precio} selected={acomp === a.id} onClick={() => setAcomp(a.id)} />
+              ))}
+            </Bloque>
+          )}
 
           {/* Extras */}
           {extras.filter(e => e.disponible).length > 0 && (
@@ -139,6 +191,16 @@ function ModalBurger({ burger, fotoUrl, extras, guarniciones, fotoExtras, fotoGu
               })}
             </Bloque>
           )}
+
+          {/* Aclaraciones */}
+          <Bloque titulo="ACLARACIONES" sub="opcional">
+            <textarea
+              value={aclaracion}
+              onChange={e => setAclaracion(e.target.value)}
+              placeholder="Ej: sin cebolla, bien cocida, salsa aparte..."
+              style={{ width: "100%", border: "1.5px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#333", resize: "none", minHeight: 70, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+            />
+          </Bloque>
 
           {/* Total + botón */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 16, borderTop: "1px solid #eee" }}>
@@ -183,16 +245,38 @@ function OpcionRow({ label, sub, precio, foto, selected, checkbox, onClick }) {
 }
 
 // ── Pantalla Checkout ─────────────────────────────────────────────
-function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, onConfirmar }) {
-  const [nombre, setNombre] = useState("");
-  const [dir, setDir]       = useState("");
-  const [coords, setCoords] = useState(null);
-  const [geoSt, setGeoSt]   = useState(null);
-  const [pago, setPago]     = useState("");
-  const [notas, setNotas]   = useState("");
+function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onConfirmar, onExito }) {
+  const [nombre, setNombre]       = useState("");
+  const [telefono, setTelefono]   = useState("");
+  const [dir, setDir]             = useState("");
+  const [localidad, setLocalidad] = useState(null);
+  const [coords, setCoords]       = useState(null);
+  const [geoSt, setGeoSt]         = useState(null);
+  const [pago, setPago]           = useState("");
+  const [notas, setNotas]         = useState("");
+  const [cooldown, setCooldown]   = useState(0);
+  const [guardando, setGuardando] = useState(false);
+  const [errorWa, setErrorWa]     = useState(null);
   const timer = useRef(null);
+  const cdTimer = useRef(null);
+  const procesando = useRef(false);
 
-  const total = carrito.reduce((s, i) => s + i.precio, 0);
+  useEffect(() => () => clearInterval(cdTimer.current), []);
+  // Al cambiar a retiro, limpiar localidad
+  useEffect(() => { if (tipo === "retiro") setLocalidad(null); }, [tipo]);
+
+  function iniciarCooldown() {
+    setCooldown(60);
+    clearInterval(cdTimer.current);
+    cdTimer.current = setInterval(() => {
+      setCooldown(v => { if (v <= 1) { clearInterval(cdTimer.current); return 0; } return v - 1; });
+    }, 1000);
+  }
+
+  const subtotal   = carrito.reduce((s, i) => s + i.precio, 0);
+  const envioObj   = envios?.find(e => e.id === localidad);
+  const costoEnvio = tipo === "delivery" && envioObj ? envioObj.precio : 0;
+  const total      = subtotal + costoEnvio;
 
   useEffect(() => {
     if (tipo !== "delivery" || dir.trim().length < 8) { setCoords(null); setGeoSt(null); return; }
@@ -209,7 +293,8 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, onConfirmar 
     return () => clearTimeout(timer.current);
   }, [dir, tipo]);
 
-  const valido = nombre.trim() && pago && (tipo === "retiro" || (dir.trim() && geoSt === "ok"));
+  // geoSt debe ser "ok" o "err" (geocoding corrió) — nunca null (no corrió) ni "buscando" ni "fuera"
+  const valido = nombre.trim() && telefono.trim() && pago && (tipo === "retiro" || ((geoSt === "ok" || geoSt === "err") && localidad));
 
   const inp = { width: "100%", border: "1.5px solid #e0e0e0", borderRadius: 12, padding: "14px 16px", fontSize: 15, outline: "none", background: "#fff", boxSizing: "border-box", color: "#1a1a1a" };
 
@@ -232,9 +317,23 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, onConfirmar 
             <button onClick={() => onQuitar(item.cartId)} style={{ background: "transparent", border: "none", color: "#ccc", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
           </div>
         ))}
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, paddingTop: 8, marginBottom: 24 }}>
-          <span style={{ color: "#aaa", fontSize: 14 }}>Total:</span>
-          <span style={{ fontWeight: 900, fontSize: 22, color: GD }}>{fmt(total)}</span>
+        <div style={{ paddingTop: 8, marginBottom: 24 }}>
+          {tipo === "delivery" && costoEnvio > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ color: "#aaa", fontSize: 13 }}>Subtotal:</span>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#555" }}>{fmt(subtotal)}</span>
+            </div>
+          )}
+          {tipo === "delivery" && costoEnvio > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ color: "#aaa", fontSize: 13 }}>Envío ({envioObj?.nombre}):</span>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#555" }}>+{fmt(costoEnvio)}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#aaa", fontSize: 14 }}>Total:</span>
+            <span style={{ fontWeight: 900, fontSize: 22, color: GD }}>{fmt(total)}</span>
+          </div>
         </div>
 
         {/* Toggle */}
@@ -249,10 +348,24 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, onConfirmar 
         <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Tu nombre *</label>
         <input style={{ ...inp, marginBottom: 14 }} placeholder="Ej: Juan García" value={nombre} onChange={e => setNombre(e.target.value)} />
 
+        <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Tu teléfono *</label>
+        <input style={{ ...inp, marginBottom: 14 }} placeholder="Ej: 341 1234567" value={telefono} onChange={e => setTelefono(e.target.value)} inputMode="tel" />
+
         {tipo === "delivery" && (
           <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Localidad *</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {(envios || []).map(env => (
+                <button key={env.id} onClick={() => setLocalidad(env.id)}
+                  style={{ flex: 1, padding: "13px 8px", borderRadius: 12, border: `2px solid ${localidad === env.id ? G : "#e0e0e0"}`, background: localidad === env.id ? GL : "#fff", cursor: "pointer", textAlign: "center" }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: localidad === env.id ? GD : "#555" }}>{env.nombre}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: localidad === env.id ? G : "#aaa", marginTop: 2 }}>Envío {fmt(env.precio)}</div>
+                </button>
+              ))}
+            </div>
+
             <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Dirección *</label>
-            <input style={inp} placeholder="Ej: San Martín 1234, Corrientes" value={dir} onChange={e => setDir(e.target.value)} />
+            <input style={inp} placeholder="Ej: San Martín 1234" value={dir} onChange={e => setDir(e.target.value)} />
             {geoSt === "buscando" && <Alerta c="#fffbe6" b="#f0d060" t="#7a5a00">🔍 Buscando dirección...</Alerta>}
             {geoSt === "ok"      && <Alerta c={GL} b={G} t={GD}>✅ Dentro de nuestra zona de delivery</Alerta>}
             {geoSt === "fuera"   && <Alerta c="#fef2f2" b="#fca5a5" t="#991b1b">❌ Fuera de nuestra zona de delivery</Alerta>}
@@ -275,8 +388,34 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, onConfirmar 
       </div>
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#fff", borderTop: "1px solid #eee", padding: "12px 16px" }}>
-        <button onClick={() => valido && onConfirmar({ nombre, dir, tipo, pago, notas })} style={{ width: "100%", background: valido ? "#25d366" : "#e0e0e0", border: "none", borderRadius: 16, padding: "17px", fontWeight: 900, fontSize: 16, color: valido ? "#fff" : "#bbb", cursor: valido ? "pointer" : "not-allowed" }}>
-          {valido ? `📲 Confirmar por WhatsApp · ${fmt(total)}` : "Completá todos los datos"}
+        {errorWa && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: "12px 14px", marginBottom: 10, textAlign: "center" }}>
+            <div style={{ fontWeight: 700, color: "#991b1b", fontSize: 14, marginBottom: 6 }}>⚠️ Hubo un problema al registrar el pedido</div>
+            <div style={{ color: "#7f1d1d", fontSize: 13, marginBottom: 10 }}>Podés enviarlo igual por WhatsApp y avisarnos al local.</div>
+            <a href={errorWa} target="_blank" rel="noreferrer" style={{ display: "inline-block", background: "#25d366", color: "#fff", fontWeight: 900, fontSize: 14, padding: "10px 20px", borderRadius: 10, textDecoration: "none" }}>
+              📲 Enviar pedido por WhatsApp
+            </a>
+          </div>
+        )}
+        <button
+          onClick={async () => {
+            if (valido && cooldown === 0 && !procesando.current && !guardando) {
+              procesando.current = true;
+              setGuardando(true);
+              try {
+                setErrorWa(null);
+                const result = await onConfirmar({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre: envioObj?.nombre || "", tipo, pago, notas, coords });
+                onExito(result);
+              } catch (e) {
+                if (e.waUrl) setErrorWa(e.waUrl);
+              } finally {
+                setGuardando(false);
+                procesando.current = false;
+              }
+            }
+          }}
+          style={{ width: "100%", background: guardando ? "#f59e0b" : cooldown > 0 ? "#6b7280" : valido ? "#25d366" : "#e0e0e0", border: "none", borderRadius: 16, padding: "17px", fontWeight: 900, fontSize: 16, color: (valido || cooldown > 0 || guardando) ? "#fff" : "#bbb", cursor: (valido && cooldown === 0 && !guardando) ? "pointer" : "not-allowed" }}>
+          {guardando ? "⏳ Registrando pedido..." : cooldown > 0 ? `✅ Pedido enviado — podés reenviar en ${cooldown}s` : valido ? `📲 Confirmar por WhatsApp · ${fmt(total)}` : "Completá todos los datos"}
         </button>
       </div>
     </div>
@@ -289,22 +428,25 @@ function Alerta({ c, b, t, children }) {
 
 // ── Página principal ──────────────────────────────────────────────
 export default function PaginaCliente() {
-  const [menu, setMenu]     = useState(null);
-  const [zona, setZona]     = useState([]);
-  const [cat, setCat]       = useState("hamburguesas");
-  const [modal, setModal]   = useState(null);
-  const [carrito, setCarrito] = useState([]);
-  const [pantalla, setPant] = useState("menu");
-  const [tipo, setTipo]     = useState("delivery");
-  const [cantSueltas, setCant] = useState({});
+  const [menu, setMenu]       = useState(null);
+  const [zona, setZona]       = useState([]);
+  const [estado, setEstado]   = useState(null); // null = cargando
+  const [cat, setCat]         = useState("hamburguesas");
+  const [modal, setModal]     = useState(null);
+  const [carrito, setCarrito]       = useState([]);
+  const [pantalla, setPant]         = useState("menu");
+  const [tipo, setTipo]             = useState("delivery");
+  const [cantSueltas, setCant]      = useState({});
+  const [confirmado, setConfirmado] = useState(null); // { waUrl, numeroPedido }
 
   useEffect(() => {
     const u1 = subscribeMenu(d => setMenu(d));
     const u2 = subscribeZona(z => setZona(z));
-    return () => { u1(); u2(); };
+    const u3 = subscribeEstado(e => setEstado(e));
+    return () => { u1(); u2(); u3(); };
   }, []);
 
-  const fB = useFotos(menu?.burgers || [], "burger");
+  const fB = {}; // imágenes estáticas por nombre (ver getBurgerImg)
   const fG = useFotos(menu?.guarniciones || [], "guar");
   const fE = useFotos(menu?.extras || [], "extra");
   const fBe = useFotos(menu?.bebidas || [], "bebida");
@@ -314,6 +456,12 @@ export default function PaginaCliente() {
 
   function agregar(item) { setCarrito(p => [...p, item]); }
   function quitar(cartId) { setCarrito(p => p.filter(i => i.cartId !== cartId)); }
+
+  function pedidoExitoso({ waUrl, numeroPedido }) {
+    setCarrito([]);
+    setConfirmado({ waUrl, numeroPedido });
+    setPant("confirmado");
+  }
 
   function cambiarCant(id, delta) { setCant(p => { const n = Math.max(0, (p[id] || 0) + delta); return { ...p, [id]: n }; }); }
 
@@ -326,24 +474,103 @@ export default function PaginaCliente() {
     if (nuevos.length) { setCarrito(p => [...p, ...nuevos]); setCant({}); }
   }
 
-  function confirmarPedido({ nombre, dir, tipo: t, pago, notas }) {
-    const lineas = ["🍔 *NUEVO PEDIDO - Roses Burgers*", ""];
+  async function confirmarPedido({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre, tipo: t, pago, notas, coords }) {
+    const subtotal = carrito.reduce((s, i) => s + i.precio, 0);
+    const totalFinal = subtotal + (costoEnvio || 0);
+    const lineas = [`🍔 *NUEVO PEDIDO - Roses Pichincha*`, ""];
     lineas.push("📋 *DETALLE:*");
     carrito.forEach(item => {
       if (item.tipo === "burger") {
         lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(item.precio)}`);
-        if (item.guarnicion) lineas.push(`   ↳ + ${item.guarnicion.nombre}`);
+        lineas.push(`   ↳ Medallón: ${item.medallon === "vegetariano" ? "🥦 Vegetariano" : "🥩 Carne"}`);
+        if (item.acomp) lineas.push(`   ↳ + ${item.acomp.nombre}`);
         if (item.extras?.length) lineas.push(`   ↳ Extras: ${item.extras.map(e => e.nombre).join(", ")}`);
+        if (item.aclaracion) lineas.push(`   ↳ Aclaración: ${item.aclaracion}`);
       } else { lineas.push(`• ${item.tipo === "guar" ? "🍟" : "🥤"} ${item.nombre} — ${fmt(item.precio)}`); }
     });
     lineas.push("", `👤 *Cliente:* ${nombre}`);
+    lineas.push(`📱 *Teléfono:* ${telefono}`);
     lineas.push(`📦 *Tipo:* ${t === "delivery" ? "🛵 Delivery" : "🏠 Retiro en local"}`);
-    if (t === "delivery") lineas.push(`📍 *Dirección:* ${dir}`);
+    if (t === "delivery") {
+      lineas.push(`📍 *Dirección:* ${dir}`);
+      lineas.push(`🏙️ *Localidad:* ${localidadNombre} — costo envío: ${fmt(costoEnvio)}`);
+    }
     lineas.push(`💳 *Pago:* ${pago}`);
     if (notas?.trim()) lineas.push(`📝 *Notas:* ${notas.trim()}`);
-    lineas.push("", `💰 *TOTAL: ${fmt(totalPrecio)}*`);
-    window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(lineas.join("\n"))}`, "_blank");
+    lineas.push("", `💰 *TOTAL: ${fmt(totalFinal)}*`);
+    const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(lineas.join("\n"))}`;
+
+    // Guardar en Firebase PRIMERO (con reintentos), luego abrir WhatsApp
+    const orderData = {
+      cliente: nombre,
+      telefono: telefono || "",
+      direccion: dir || "",
+      localidad: localidadNombre || "",
+      costoEnvio: costoEnvio || 0,
+      tipo: t,
+      pago,
+      notas: notas || "",
+      items: carrito,
+      total: totalFinal,
+      ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
+    };
+
+    let guardado = false;
+    let numeroPedido = null;
+    for (let intento = 0; intento < 4; intento++) {
+      try {
+        numeroPedido = await saveOrder(orderData);
+        guardado = true;
+        break;
+      } catch (e) {
+        console.error(`Error guardando pedido (intento ${intento + 1}):`, e);
+        if (intento < 3) await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    if (!guardado) {
+      const err = new Error("Firebase caído");
+      err.waUrl = waUrl;
+      throw err;
+    }
+
+    return { waUrl, numeroPedido };
   }
+
+  // ── Pantallas de cierre ────────────────────────────────────────
+  if (estado === null) return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#1a3a25", gap: 16 }}>
+      <div style={{ fontSize: 52 }}>🍔</div>
+      <div style={{ color: "#a8e6bc", fontSize: 15 }}>Cargando...</div>
+    </div>
+  );
+
+  const enHorario = dentroDeHorario(estado.horaDesde, estado.horaHasta);
+
+  if (!enHorario) return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#1a3a25", padding: "32px 24px", textAlign: "center" }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>🍔</div>
+      <div style={{ fontSize: 26, fontWeight: 900, color: "#a8e6bc", marginBottom: 10 }}>Roses Pichincha</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Estamos fuera de horario</div>
+      <div style={{ fontSize: 15, color: "#6ab88a", lineHeight: 1.6, maxWidth: 300 }}>
+        Tomamos pedidos de<br />
+        <span style={{ color: "#fff", fontWeight: 800 }}>{estado.horaDesde} hs a {estado.horaHasta} hs</span>
+        <br /><br />¡Te esperamos pronto! 🙌
+      </div>
+    </div>
+  );
+
+  if (!estado.abierto) return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#1a3a25", padding: "32px 24px", textAlign: "center" }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>😔</div>
+      <div style={{ fontSize: 26, fontWeight: 900, color: "#a8e6bc", marginBottom: 10 }}>Roses Pichincha</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 12 }}>No estamos tomando más pedidos</div>
+      <div style={{ fontSize: 15, color: "#6ab88a", lineHeight: 1.6, maxWidth: 320 }}>
+        Les pedimos mil disculpas, pero por hoy no estamos tomando más pedidos debido a la <strong style={{ color: "#fff" }}>alta demanda</strong>.<br /><br />
+        ¡Los esperamos mañana a partir de las {estado.horaDesde} hs! 🙌
+      </div>
+    </div>
+  );
 
   if (!menu) return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f6f6f6", gap: 16 }}>
@@ -376,7 +603,7 @@ export default function PaginaCliente() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 42, height: 42, borderRadius: "50%", background: GD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🍔</div>
-            <span style={{ fontWeight: 900, fontSize: 18, color: GD }}>Roses Burgers</span>
+            <span style={{ fontWeight: 900, fontSize: 18, color: GD }}>Roses Pichincha</span>
           </div>
           {pantalla === "checkout" && (
             <button onClick={() => setPant("menu")} style={{ background: "transparent", border: `1.5px solid ${G}`, borderRadius: 8, padding: "6px 14px", color: G, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -409,8 +636,23 @@ export default function PaginaCliente() {
       </div>
 
       {/* ── CONTENIDO ── */}
-      {pantalla === "checkout" ? (
-        <PantallaCheckout carrito={carrito} onQuitar={quitar} tipo={tipo} setTipo={setTipo} zona={zona} onConfirmar={confirmarPedido} />
+      {pantalla === "confirmado" ? (
+        <div style={{ minHeight: "70vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: GD, marginBottom: 8 }}>¡Pedido registrado!</div>
+          {confirmado?.numeroPedido && <div style={{ fontSize: 16, color: "#555", marginBottom: 4 }}>Tu número de pedido es el <strong style={{ color: GD }}>#{confirmado.numeroPedido}</strong></div>}
+          <div style={{ fontSize: 14, color: "#888", marginBottom: 32, maxWidth: 300 }}>Ahora envianos el mensaje por WhatsApp para confirmarlo y empezamos a prepararlo.</div>
+          <a href={confirmado?.waUrl} target="_blank" rel="noreferrer"
+            style={{ display: "block", width: "100%", maxWidth: 340, background: "#25d366", color: "#fff", fontWeight: 900, fontSize: 17, padding: "17px", borderRadius: 16, textDecoration: "none", marginBottom: 14 }}>
+            📲 Enviar pedido por WhatsApp
+          </a>
+          <button onClick={() => { setConfirmado(null); setPant("menu"); }}
+            style={{ background: "transparent", border: "none", color: "#aaa", fontSize: 14, cursor: "pointer", textDecoration: "underline" }}>
+            Volver al menú
+          </button>
+        </div>
+      ) : pantalla === "checkout" ? (
+        <PantallaCheckout carrito={carrito} onQuitar={quitar} tipo={tipo} setTipo={setTipo} zona={zona} envios={menu?.envios || []} onConfirmar={confirmarPedido} onExito={pedidoExitoso} />
       ) : (
         <div style={{ padding: "16px 0 100px" }}>
 
@@ -421,7 +663,7 @@ export default function PaginaCliente() {
 
           {/* ── HAMBURGUESAS ── */}
           {cat === "hamburguesas" && itemsCat.hamburguesas.map((b, idx) => {
-            const foto = fB[b.id];
+            const foto = getBurgerImg(b.nombre);
             const enCarrito = carrito.filter(i => i.tipo === "burger" && i.nombre === b.nombre).length;
             return (
               <div key={b.id}>
@@ -556,7 +798,7 @@ export default function PaginaCliente() {
 
       {/* Modal */}
       {modal && (
-        <ModalBurger burger={modal} fotoUrl={fB[modal.id]} extras={menu.extras} guarniciones={menu.guarniciones} fotoExtras={fE} fotoGuar={fG} onAgregar={agregar} onCerrar={() => setModal(null)} />
+        <ModalBurger burger={modal} fotoUrl={getBurgerImg(modal.nombre)} extras={menu.extras} acompList={menu.acomp || []} fotoExtras={fE} onAgregar={agregar} onCerrar={() => setModal(null)} />
       )}
     </div>
   );
