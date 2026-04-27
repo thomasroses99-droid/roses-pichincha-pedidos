@@ -376,7 +376,7 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
 
         <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 8 }}>Método de pago *</label>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          {["Efectivo", "Transferencia", "Link de pago"].map(op => (
+          {["Efectivo", "Transferencia"].map(op => (
             <button key={op} onClick={() => setPago(op)} style={{ flex: 1, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${pago === op ? G : "#e0e0e0"}`, background: pago === op ? GL : "#fff", color: pago === op ? GD : "#aaa", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
               {op}
             </button>
