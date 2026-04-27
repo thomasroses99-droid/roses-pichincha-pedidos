@@ -262,8 +262,11 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
   const procesando = useRef(false);
 
   useEffect(() => () => clearInterval(cdTimer.current), []);
-  // Al cambiar a retiro, limpiar localidad
-  useEffect(() => { if (tipo === "retiro") setLocalidad(null); }, [tipo]);
+  // Al cambiar a retiro, limpiar localidad; al cambiar a delivery, auto-seleccionar primer envío
+  useEffect(() => {
+    if (tipo === "retiro") setLocalidad(null);
+    else if (tipo === "delivery" && envios?.length > 0) setLocalidad(envios[0].id);
+  }, [tipo, envios]);
 
   function iniciarCooldown() {
     setCooldown(60);
@@ -353,17 +356,6 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
 
         {tipo === "delivery" && (
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Localidad *</label>
-            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              {(envios || []).map(env => (
-                <button key={env.id} onClick={() => setLocalidad(env.id)}
-                  style={{ flex: 1, padding: "13px 8px", borderRadius: 12, border: `2px solid ${localidad === env.id ? G : "#e0e0e0"}`, background: localidad === env.id ? GL : "#fff", cursor: "pointer", textAlign: "center" }}>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: localidad === env.id ? GD : "#555" }}>{env.nombre}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: localidad === env.id ? G : "#aaa", marginTop: 2 }}>Envío {fmt(env.precio)}</div>
-                </button>
-              ))}
-            </div>
-
             <label style={{ fontSize: 12, color: "#aaa", display: "block", marginBottom: 6 }}>Dirección *</label>
             <input style={inp} placeholder="Ej: San Martín 1234" value={dir} onChange={e => setDir(e.target.value)} />
             {geoSt === "buscando" && <Alerta c="#fffbe6" b="#f0d060" t="#7a5a00">🔍 Buscando dirección...</Alerta>}
