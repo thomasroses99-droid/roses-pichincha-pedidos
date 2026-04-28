@@ -106,9 +106,9 @@ function MapaCliente({ coords, zona }) {
 }
 
 // ── Modal personalización burger ──────────────────────────────────
-function ModalBurger({ burger, fotoUrl, extras, acompList, fotoExtras, onAgregar, onCerrar }) {
+function ModalBurger({ burger, fotoUrl, extras, acompList, fotoExtras, medallones, onAgregar, onCerrar }) {
   const [tamano, setTamano]     = useState("simple");
-  const [medallon, setMedallon] = useState("carne");
+  const [medallon, setMedallon] = useState(medallones?.carne !== false ? "carne" : "vegetariano");
   const [acomp, setAcomp]       = useState(null);
   const [extrasEleg, setExtrasEleg] = useState([]);
   const [aclaracion, setAclaracion] = useState("");
@@ -161,12 +161,14 @@ function ModalBurger({ burger, fotoUrl, extras, acompList, fotoExtras, onAgregar
           {/* Medallón */}
           <Bloque titulo="MEDALLÓN">
             <div style={{ display: "flex", gap: 8 }}>
-              {[{ key: "carne", label: "🥩 Carne" }, { key: "vegetariano", label: "🥦 Vegetariano" }].map(op => (
-                <button key={op.key} onClick={() => setMedallon(op.key)}
-                  style={{ flex: 1, padding: "12px 4px", borderRadius: 12, border: `2px solid ${medallon === op.key ? G : "#e0e0e0"}`, background: medallon === op.key ? GL : "#fff", cursor: "pointer", textAlign: "center" }}>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: medallon === op.key ? GD : "#555" }}>{op.label}</div>
-                </button>
-              ))}
+              {[{ key: "carne", label: "🥩 Carne" }, { key: "vegetariano", label: "🥦 Vegetariano" }]
+                .filter(op => medallones[op.key] !== false)
+                .map(op => (
+                  <button key={op.key} onClick={() => setMedallon(op.key)}
+                    style={{ flex: 1, padding: "12px 4px", borderRadius: 12, border: `2px solid ${medallon === op.key ? G : "#e0e0e0"}`, background: medallon === op.key ? GL : "#fff", cursor: "pointer", textAlign: "center" }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: medallon === op.key ? GD : "#555" }}>{op.label}</div>
+                  </button>
+                ))}
             </div>
           </Bloque>
 
@@ -790,7 +792,7 @@ export default function PaginaCliente() {
 
       {/* Modal */}
       {modal && (
-        <ModalBurger burger={modal} fotoUrl={getBurgerImg(modal.nombre)} extras={menu.extras} acompList={menu.acomp || []} fotoExtras={fE} onAgregar={agregar} onCerrar={() => setModal(null)} />
+        <ModalBurger burger={modal} fotoUrl={getBurgerImg(modal.nombre)} extras={menu.extras} acompList={menu.acomp || []} fotoExtras={fE} medallones={menu.medallones || { carne: true, vegetariano: true }} onAgregar={agregar} onCerrar={() => setModal(null)} />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  BURGERS_DEFAULT, GUARNICIONES_DEFAULT, EXTRAS_DEFAULT, BEBIDAS_DEFAULT, ACOMP_DEFAULT, ENVIOS_DEFAULT,
+  BURGERS_DEFAULT, GUARNICIONES_DEFAULT, EXTRAS_DEFAULT, BEBIDAS_DEFAULT, ACOMP_DEFAULT, ENVIOS_DEFAULT, MEDALLONES_DEFAULT,
   subscribeMenu, saveMenuFirestore,
   uploadFoto, deleteFotoStorage, getFotoURL, getFotoCached, setFotoCache, clearFotoCache,
   saveZonaFirestore, subscribeZona,
@@ -63,6 +63,7 @@ const NAV_ITEMS = [
   { icon: "➕", label: "Extras" },
   { icon: "🥤", label: "Bebidas" },
   { icon: "🚚", label: "Envíos" },
+  { icon: "🥩", label: "Medallones" },
   { icon: "🗺️", label: "Zona Delivery" },
 ];
 
@@ -678,6 +679,7 @@ export default function PaginaAdmin() {
   const [bebidas,      setBebidas]      = useState(BEBIDAS_DEFAULT);
   const [acomp,        setAcomp]        = useState(ACOMP_DEFAULT);
   const [envios,       setEnvios]       = useState(ENVIOS_DEFAULT);
+  const [medallones,   setMedallones]   = useState(MEDALLONES_DEFAULT);
   const [zona,         setZona]         = useState([]);
 
   useEffect(() => {
@@ -690,6 +692,7 @@ export default function PaginaAdmin() {
       setBebidas(data.bebidas);
       setAcomp(data.acomp);
       setEnvios(data.envios || ENVIOS_DEFAULT);
+      setMedallones(data.medallones || MEDALLONES_DEFAULT);
       setCargando(false);
     });
     const unsubZona = subscribeZona(z => setZona(z));
@@ -699,7 +702,7 @@ export default function PaginaAdmin() {
   async function guardarMenu() {
     setGuardando(true);
     try {
-      await saveMenuFirestore({ burgers, guarniciones, extras, bebidas, acomp, envios });
+      await saveMenuFirestore({ burgers, guarniciones, extras, bebidas, acomp, envios, medallones });
       setFlashOk(true); setTimeout(() => setFlashOk(false), 2500);
     } catch { alert("Error al guardar. Revisá tu conexión."); }
     finally { setGuardando(false); }
@@ -714,7 +717,7 @@ export default function PaginaAdmin() {
   if (!logueado) return <Login onLogin={() => setLogueado(true)} />;
 
   const urlCliente = `${window.location.origin}/`;
-  const showGuardar = (tab >= 1 && tab <= 5) || tab === 6;
+  const showGuardar = (tab >= 1 && tab <= 5) || tab === 6 || tab === 7;
 
   return (
     <div style={G.page}>
@@ -830,7 +833,33 @@ export default function PaginaAdmin() {
               {tab === 4 && <SeccionItems titulo="Extras para la burger" icon="➕" items={extras} onUpdate={setExtras} tipoFoto="extra" />}
               {tab === 5 && <SeccionItems titulo="Bebidas" icon="🥤" items={bebidas} onUpdate={setBebidas} tipoFoto="bebida" />}
               {tab === 6 && <SeccionEnvios envios={envios} onUpdate={setEnvios} />}
-              {tab === 7 && <MapaAdmin zona={zona} onGuardar={guardarZona} onLimpiar={async () => { setZona([]); await saveZonaFirestore([]); }} />}
+              {tab === 7 && (
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: "#1a3a25", marginBottom: 20 }}>🥩 Medallones</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {[
+                      { key: "carne",       label: "🥩 Carne",       desc: "Medallón de carne" },
+                      { key: "vegetariano", label: "🥦 Vegetariano", desc: "Medallón vegetariano" },
+                    ].map(({ key, label, desc }) => (
+                      <div key={key} style={{ ...G.card, display: "flex", alignItems: "center", justifyContent: "space-between", opacity: medallones[key] ? 1 : 0.55 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "#1a3a25" }}>{label}</div>
+                          <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{desc}</div>
+                        </div>
+                        <button
+                          style={G.btn(medallones[key] ? "#f59e0b" : "#1a7a3a")}
+                          onClick={() => setMedallones(p => ({ ...p, [key]: !p[key] }))}>
+                          {medallones[key] ? "Desactivar" : "Activar"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#888", marginTop: 16 }}>
+                    Los medallones desactivados no aparecen como opción al cliente. Acordate de guardar los cambios.
+                  </div>
+                </div>
+              )}
+              {tab === 8 && <MapaAdmin zona={zona} onGuardar={guardarZona} onLimpiar={async () => { setZona([]); await saveZonaFirestore([]); }} />}
             </>
           )}
         </div>

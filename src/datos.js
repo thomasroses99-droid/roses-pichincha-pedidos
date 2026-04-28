@@ -38,6 +38,8 @@ export const BEBIDAS_DEFAULT = [
   { id: "b1", nombre: "Gaseosa", detalle: "Pepsi / Pepsi Black / 7UP / Mirinda 354cc", precio: 3000, disponible: true },
 ];
 
+export const MEDALLONES_DEFAULT = { carne: true, vegetariano: true };
+
 export const ENVIOS_DEFAULT = [
   { id: "env1", nombre: "Fisherton", precio: 2500 },
   { id: "env2", nombre: "Funes",     precio: 3000 },
@@ -61,6 +63,7 @@ export async function saveMenuFirestore(data) {
     bebidas:      JSON.stringify(data.bebidas),
     acomp:        JSON.stringify(data.acomp),
     envios:       JSON.stringify(data.envios),
+    medallones:   JSON.stringify(data.medallones),
   });
 }
 
@@ -76,6 +79,7 @@ export function subscribeMenu(callback) {
       bebidas:      safeJSON(d.bebidas,      BEBIDAS_DEFAULT),
       acomp:        safeJSON(d.acomp,        ACOMP_DEFAULT),
       envios:       safeJSON(d.envios,       ENVIOS_DEFAULT),
+      medallones:   safeJSON(d.medallones,   MEDALLONES_DEFAULT),
     });
   });
 }
