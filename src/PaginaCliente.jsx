@@ -338,8 +338,17 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
 
   const inp = { width: "100%", border: "1.5px solid #e0e0e0", borderRadius: 12, padding: "14px 16px", fontSize: 15, outline: "none", background: "#FDFAF5", boxSizing: "border-box", color: GD };
 
+  const _dbgHayPapas = carrito.some(i => i.acomp?.nombre?.toLowerCase().includes("papa") || (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa")));
+  const _dbgHayBurger = carrito.some(i => i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble"));
+
   return (
     <div style={{ paddingBottom: 100 }}>
+      {/* DEBUG TEMPORAL */}
+      <div style={{ background: "#fffbe6", border: "1px solid #f0d060", margin: "12px 16px", padding: "10px 14px", borderRadius: 10, fontSize: 12, fontFamily: "monospace" }}>
+        <div>🔍 esDia: <b>{String(esDiaPromo())}</b> · esHot: <b>{String(esHotSale())}</b> · pago: <b>"{pago}"</b></div>
+        <div>burger: <b>{String(_dbgHayBurger)}</b> · papas: <b>{String(_dbgHayPapas)}</b> · promoSub: <b>{String(_promoSub)}</b></div>
+        <div>items: {carrito.map(i => `[${i.tipo}|${i.tamano||'-'}|acomp:${i.acomp?.nombre||'null'}]`).join(' ')}</div>
+      </div>
       <div style={{ padding: "20px 16px 0" }}>
         {/* Resumen */}
         <div style={{ fontSize: 13, fontWeight: 800, color: G, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Tu pedido</div>
