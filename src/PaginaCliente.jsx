@@ -24,6 +24,8 @@ const HEAD = "'Barlow Condensed', sans-serif";
 const BODY = "'Barlow', sans-serif";
 
 // ── Promo Hot Sale ──────────────────────────────────────────────────
+const PROMO_SIMPLE = 12000;
+const PROMO_DOBLE  = 14000;
 function esHotSale() {
   const h = new Date(); const y = h.getFullYear(), m = h.getMonth()+1, d = h.getDate();
   return y === 2026 && m === 5 && d >= 11 && d <= 13;
@@ -32,25 +34,15 @@ function esDiaPromo() {
   const d = new Date().getDay();
   return esHotSale() || (d >= 1 && d <= 4);
 }
-// Calcula el subtotal con promo para todo el carrito.
-// Detecta papas tanto como acomp dentro de la burger como guarnición suelta.
-// Devuelve null si no aplica promo.
-function calcularSubtotalPromo(carrito) {
-  const hayPapas = carrito.some(i =>
-    i.acomp?.nombre?.toLowerCase().includes("papa") ||
-    (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa"))
-  );
-  const hayBurger = carrito.some(i => i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble"));
-  if (!hayPapas || !hayBurger) return null;
-
-  return carrito.reduce((s, i) => {
-    if (i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble")) {
-      const p = esHotSale() ? (i.tamano === "Simple" ? 11000 : 12500) : (i.tamano === "Simple" ? 12000 : 14000);
-      return s + p;
-    }
-    if (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa")) return s; // gratis en combo
-    return s + i.precio;
-  }, 0);
+function itemCalificaPromo(item) {
+  return item.tipo === "burger" &&
+    (item.tamano === "Simple" || item.tamano === "Doble") &&
+    item.acomp?.nombre?.toLowerCase().includes("papa");
+}
+function precioConPromo(item) {
+  if (!itemCalificaPromo(item)) return item.precio;
+  if (esHotSale()) return item.tamano === "Simple" ? 11000 : 12500;
+  return item.tamano === "Simple" ? PROMO_SIMPLE : PROMO_DOBLE;
 }
 
 
@@ -311,9 +303,10 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
     }, 1000);
   }
 
-  const _promoSub  = (esDiaPromo() && pago === "Efectivo") ? calcularSubtotalPromo(carrito) : null;
-  const subtotal   = _promoSub !== null ? _promoSub : carrito.reduce((s, i) => s + i.precio, 0);
-  const hayPromo   = _promoSub !== null;
+  const promoActiva = esDiaPromo() && pago === "Efectivo";
+  const subtotal    = carrito.reduce((s, i) => s + (promoActiva ? precioConPromo(i) : i.precio), 0);
+  const ahorroPromo = promoActiva ? carrito.reduce((s, i) => s + (i.precio - precioConPromo(i)), 0) : 0;
+  const hayPromo    = promoActiva && ahorroPromo > 0;
   const envioObj   = envios?.find(e => e.id === localidad);
   const costoEnvio = tipo === "delivery" && envioObj ? envioObj.precio : 0;
   const total      = subtotal + costoEnvio;
@@ -338,17 +331,8 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
 
   const inp = { width: "100%", border: "1.5px solid #e0e0e0", borderRadius: 12, padding: "14px 16px", fontSize: 15, outline: "none", background: "#FDFAF5", boxSizing: "border-box", color: GD };
 
-  const _dbgHayPapas = carrito.some(i => i.acomp?.nombre?.toLowerCase().includes("papa") || (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa")));
-  const _dbgHayBurger = carrito.some(i => i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble"));
-
   return (
     <div style={{ paddingBottom: 100 }}>
-      {/* DEBUG TEMPORAL */}
-      <div style={{ background: "#fffbe6", border: "1px solid #f0d060", margin: "12px 16px", padding: "10px 14px", borderRadius: 10, fontSize: 12, fontFamily: "monospace" }}>
-        <div>🔍 esDia: <b>{String(esDiaPromo())}</b> · esHot: <b>{String(esHotSale())}</b> · pago: <b>"{pago}"</b></div>
-        <div>burger: <b>{String(_dbgHayBurger)}</b> · papas: <b>{String(_dbgHayPapas)}</b> · promoSub: <b>{String(_promoSub)}</b></div>
-        <div>items: {carrito.map(i => `[${i.tipo}|${i.tamano||'-'}|acomp:${i.acomp?.nombre||'null'}]`).join(' ')}</div>
-      </div>
       <div style={{ padding: "20px 16px 0" }}>
         {/* Resumen */}
         <div style={{ fontSize: 13, fontWeight: 800, color: G, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Tu pedido</div>
@@ -520,16 +504,15 @@ export default function PaginaCliente() {
   }
 
   async function confirmarPedido({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre, tipo: t, pago, notas, coords }) {
-    const _ps = (esDiaPromo() && pago === "Efectivo") ? calcularSubtotalPromo(carrito) : null;
-    const subtotal = _ps !== null ? _ps : carrito.reduce((s, i) => s + i.precio, 0);
+    const promoActiva = esDiaPromo() && pago === "Efectivo";
+    const subtotal = carrito.reduce((s, i) => s + (promoActiva ? precioConPromo(i) : i.precio), 0);
     const totalFinal = subtotal + (costoEnvio || 0);
     const lineas = [`🍔 *NUEVO PEDIDO - Roses Pichincha*`, ""];
+    if (promoActiva) lineas.push("🔥 *PROMO EFECTIVO*", "");
     lineas.push("📋 *DETALLE:*");
     carrito.forEach(item => {
       if (item.tipo === "burger") {
-        const pItem = (_ps !== null && (item.tamano === "Simple" || item.tamano === "Doble"))
-          ? (esHotSale() ? (item.tamano === "Simple" ? 11000 : 12500) : (item.tamano === "Simple" ? 12000 : 14000))
-          : item.precio;
+        const pItem = promoActiva ? precioConPromo(item) : item.precio;
         lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(pItem)}`);
         lineas.push(`   ↳ Medallón: ${item.medallon === "vegetariano" ? "🥦 Vegetariano" : "🥩 Carne"}`);
         if (item.acomp) lineas.push(`   ↳ + ${item.acomp.nombre}`);
@@ -559,7 +542,7 @@ export default function PaginaCliente() {
       tipo: t,
       pago,
       notas: notas || "",
-      items: carrito,
+      items: carrito.map(i => promoActiva ? { ...i, precio: precioConPromo(i) } : i),
       total: totalFinal,
       ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
     };
