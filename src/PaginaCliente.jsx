@@ -32,15 +32,25 @@ function esDiaPromo() {
   const d = new Date().getDay();
   return esHotSale() || (d >= 1 && d <= 4);
 }
-function itemCalificaPromo(item) {
-  return item.tipo === "burger" &&
-    (item.tamano === "Simple" || item.tamano === "Doble") &&
-    item.acomp?.nombre?.toLowerCase().includes("papa");
-}
-function precioConPromo(item) {
-  if (!itemCalificaPromo(item)) return item.precio;
-  if (esHotSale()) return item.tamano === "Simple" ? 11000 : 12500;
-  return item.tamano === "Simple" ? 12000 : 14000;
+// Calcula el subtotal con promo para todo el carrito.
+// Detecta papas tanto como acomp dentro de la burger como guarnición suelta.
+// Devuelve null si no aplica promo.
+function calcularSubtotalPromo(carrito) {
+  const hayPapas = carrito.some(i =>
+    i.acomp?.nombre?.toLowerCase().includes("papa") ||
+    (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa"))
+  );
+  const hayBurger = carrito.some(i => i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble"));
+  if (!hayPapas || !hayBurger) return null;
+
+  return carrito.reduce((s, i) => {
+    if (i.tipo === "burger" && (i.tamano === "Simple" || i.tamano === "Doble")) {
+      const p = esHotSale() ? (i.tamano === "Simple" ? 11000 : 12500) : (i.tamano === "Simple" ? 12000 : 14000);
+      return s + p;
+    }
+    if (i.tipo === "guar" && i.nombre?.toLowerCase().includes("papa")) return s; // gratis en combo
+    return s + i.precio;
+  }, 0);
 }
 
 
@@ -301,10 +311,9 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
     }, 1000);
   }
 
-  const subtotal   = (esDiaPromo() && pago === "Efectivo")
-    ? carrito.reduce((s, i) => s + precioConPromo(i), 0)
-    : carrito.reduce((s, i) => s + i.precio, 0);
-  const hayPromo = esDiaPromo() && pago === "Efectivo" && carrito.some(i => precioConPromo(i) < i.precio);
+  const _promoSub  = (esDiaPromo() && pago === "Efectivo") ? calcularSubtotalPromo(carrito) : null;
+  const subtotal   = _promoSub !== null ? _promoSub : carrito.reduce((s, i) => s + i.precio, 0);
+  const hayPromo   = _promoSub !== null;
   const envioObj   = envios?.find(e => e.id === localidad);
   const costoEnvio = tipo === "delivery" && envioObj ? envioObj.precio : 0;
   const total      = subtotal + costoEnvio;
@@ -502,15 +511,16 @@ export default function PaginaCliente() {
   }
 
   async function confirmarPedido({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre, tipo: t, pago, notas, coords }) {
-    const subtotal = (esDiaPromo() && pago === "Efectivo")
-      ? carrito.reduce((s, i) => s + precioConPromo(i), 0)
-      : carrito.reduce((s, i) => s + i.precio, 0);
+    const _ps = (esDiaPromo() && pago === "Efectivo") ? calcularSubtotalPromo(carrito) : null;
+    const subtotal = _ps !== null ? _ps : carrito.reduce((s, i) => s + i.precio, 0);
     const totalFinal = subtotal + (costoEnvio || 0);
     const lineas = [`🍔 *NUEVO PEDIDO - Roses Pichincha*`, ""];
     lineas.push("📋 *DETALLE:*");
     carrito.forEach(item => {
       if (item.tipo === "burger") {
-        const pItem = (esDiaPromo() && pago === "Efectivo") ? precioConPromo(item) : item.precio;
+        const pItem = (_ps !== null && (item.tamano === "Simple" || item.tamano === "Doble"))
+          ? (esHotSale() ? (item.tamano === "Simple" ? 11000 : 12500) : (item.tamano === "Simple" ? 12000 : 14000))
+          : item.precio;
         lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(pItem)}`);
         lineas.push(`   ↳ Medallón: ${item.medallon === "vegetariano" ? "🥦 Vegetariano" : "🥩 Carne"}`);
         if (item.acomp) lineas.push(`   ↳ + ${item.acomp.nombre}`);
