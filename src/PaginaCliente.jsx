@@ -55,6 +55,23 @@ function precioConDescuentoHoy(item) {
   return Math.round(item.precio * (1 - DESCUENTO_HOY_PCT));
 }
 
+// ── Promo fin de semana Cheeseburger (temporal: solo 18/19/20-09-2026, borrar después) ──
+const PROMO_FDS_FECHAS = ["2026-09-18", "2026-09-19", "2026-09-20"];
+function promoFdsActiva() {
+  const hoy = new Date();
+  const iso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  return PROMO_FDS_FECHAS.includes(iso);
+}
+function descuentoFdsPct(pago) {
+  if (pago === "Efectivo") return 0.20;
+  if (pago === "Transferencia") return 0.15;
+  return 0;
+}
+function descuentoFdsItem(item, pago) {
+  if (!promoFdsActiva() || item.tipo !== "burger" || item.nombre?.toUpperCase() !== "CHEESEBURGER") return 0;
+  return Math.round((item.precioBase || 0) * descuentoFdsPct(pago));
+}
+
 
 const BURGER_IMGS = {
   "CHEESEBURGER":  "/images/burgers/cheeseburger.jpg",
@@ -161,7 +178,7 @@ function ModalBurger({ burger, fotoUrl, extras, acompList, fotoExtras, medallone
   function toggleExtra(id) { setExtrasEleg(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]); }
 
   function agregar() {
-    onAgregar({ cartId: Date.now() + Math.random(), tipo: "burger", nombre: burger.nombre, tamano: tObj.label, medallon, acomp: acompObj ? { nombre: acompObj.nombre, precio: acompObj.precio } : null, extras: extrasEleg.map(id => extras.find(e => e.id === id)).filter(Boolean), aclaracion: aclaracion.trim(), precio: total });
+    onAgregar({ cartId: Date.now() + Math.random(), tipo: "burger", nombre: burger.nombre, tamano: tObj.label, precioBase: tObj.precio, medallon, acomp: acompObj ? { nombre: acompObj.nombre, precio: acompObj.precio } : null, extras: extrasEleg.map(id => extras.find(e => e.id === id)).filter(Boolean), aclaracion: aclaracion.trim(), precio: total });
     onCerrar();
   }
 
@@ -315,10 +332,14 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
 
   const descuentoHoy = esDescuentoHoy();
   const promoActiva = !descuentoHoy && esDiaPromo() && pago === "Efectivo";
-  const precioItem = i => descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+  const precioItem = i => {
+    const base = descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+    return base - descuentoFdsItem(i, pago);
+  };
   const subtotal    = carrito.reduce((s, i) => s + precioItem(i), 0);
-  const ahorroPromo = (promoActiva || descuentoHoy) ? carrito.reduce((s, i) => s + (i.precio - precioItem(i)), 0) : 0;
-  const hayPromo    = (promoActiva || descuentoHoy) && ahorroPromo > 0;
+  const hayDescuentoFds = carrito.some(i => descuentoFdsItem(i, pago) > 0);
+  const ahorroPromo = (promoActiva || descuentoHoy || hayDescuentoFds) ? carrito.reduce((s, i) => s + (i.precio - precioItem(i)), 0) : 0;
+  const hayPromo    = ahorroPromo > 0;
   const envioObj   = envios?.find(e => e.id === localidad);
   const costoEnvio = tipo === "delivery" && envioObj ? envioObj.precio : 0;
   const total      = subtotal + costoEnvio;
@@ -348,20 +369,27 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
       <div style={{ padding: "20px 16px 0" }}>
         {/* Resumen */}
         <div style={{ fontSize: 13, fontWeight: 800, color: G, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 }}>Tu pedido</div>
-        {carrito.map(item => (
-          <div key={item.cartId} style={{ background: "#FDFAF5", borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 1px 4px #0001" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: GD }}>
-                {item.tipo === "burger" ? "🍔" : item.tipo === "guar" ? "🍟" : "🥤"} {item.nombre}
-                {item.tamano && <span style={{ fontWeight: 400, color: "#999", fontSize: 13 }}> · {item.tamano}</span>}
+        {carrito.map(item => {
+          const pItem = precioItem(item);
+          const desc = item.precio - pItem;
+          return (
+            <div key={item.cartId} style={{ background: "#FDFAF5", borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 10, boxShadow: "0 1px 4px #0001" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: GD }}>
+                  {item.tipo === "burger" ? "🍔" : item.tipo === "guar" ? "🍟" : "🥤"} {item.nombre}
+                  {item.tamano && <span style={{ fontWeight: 400, color: "#999", fontSize: 13 }}> · {item.tamano}</span>}
+                </div>
+                {item.guarnicion && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>+ {item.guarnicion.nombre}</div>}
+                {item.extras?.map(e => <div key={e.id} style={{ fontSize: 12, color: "#aaa" }}>+ {e.nombre}</div>)}
               </div>
-              {item.guarnicion && <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>+ {item.guarnicion.nombre}</div>}
-              {item.extras?.map(e => <div key={e.id} style={{ fontSize: 12, color: "#aaa" }}>+ {e.nombre}</div>)}
+              <div style={{ textAlign: "right" }}>
+                {desc > 0 && <div style={{ fontSize: 11, color: "#bbb", textDecoration: "line-through" }}>{fmt(item.precio)}</div>}
+                <div style={{ fontWeight: 700, color: G, fontSize: 14 }}>{fmt(pItem)}</div>
+              </div>
+              <button onClick={() => onQuitar(item.cartId)} style={{ background: "transparent", border: "none", color: "#ccc", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
             </div>
-            <div style={{ fontWeight: 700, color: G, fontSize: 14 }}>{fmt(item.precio)}</div>
-            <button onClick={() => onQuitar(item.cartId)} style={{ background: "transparent", border: "none", color: "#ccc", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
-          </div>
-        ))}
+          );
+        })}
         <div style={{ paddingTop: 8, marginBottom: 24 }}>
           {tipo === "delivery" && costoEnvio > 0 && (
             <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -377,7 +405,7 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
           )}
           {hayPromo && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: G, fontWeight: 700 }}>🎉 {descuentoHoy ? "20% OFF de hoy aplicado" : `Precio ${esHotSale() ? "Hot Sale" : "promo"} aplicado`}</span>
+              <span style={{ fontSize: 12, color: G, fontWeight: 700 }}>{descuentoHoy ? "🎉 20% OFF de hoy aplicado" : promoActiva ? `🎉 Precio ${esHotSale() ? "Hot Sale" : "promo"} aplicado` : "🏷️ Descuento fin de semana Cheeseburger aplicado"}</span>
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
@@ -519,17 +547,23 @@ export default function PaginaCliente() {
   async function confirmarPedido({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre, tipo: t, pago, notas, coords }) {
     const descuentoHoy = esDescuentoHoy();
     const promoActiva = !descuentoHoy && esDiaPromo() && pago === "Efectivo";
-    const precioItem = i => descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+    const precioItem = i => {
+      const base = descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+      return base - descuentoFdsItem(i, pago);
+    };
+    const hayDescuentoFds = carrito.some(i => descuentoFdsItem(i, pago) > 0);
     const subtotal = carrito.reduce((s, i) => s + precioItem(i), 0);
     const totalFinal = subtotal + (costoEnvio || 0);
     const lineas = [`🍔 *NUEVO PEDIDO - Roses Pichincha*`, ""];
     if (descuentoHoy) lineas.push("🎉 *20% OFF DE HOY - TODOS LOS MEDIOS DE PAGO*", "");
     else if (promoActiva) lineas.push("🔥 *PROMO EFECTIVO*", "");
+    else if (hayDescuentoFds) lineas.push(`🏷️ *DESCUENTO FIN DE SEMANA CHEESEBURGER (${pago})*`, "");
     lineas.push("📋 *DETALLE:*");
     carrito.forEach(item => {
       if (item.tipo === "burger") {
         const pItem = precioItem(item);
-        lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(pItem)}`);
+        const descFds = descuentoFdsItem(item, pago);
+        lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(pItem)}${descFds > 0 ? ` 🏷️-${Math.round(descuentoFdsPct(pago) * 100)}%` : ""}`);
         lineas.push(`   ↳ Medallón: ${item.medallon === "vegetariano" ? "🥦 Vegetariano" : "🥩 Carne"}`);
         if (item.acomp) lineas.push(`   ↳ + ${item.acomp.nombre}`);
         if (item.extras?.length) lineas.push(`   ↳ Extras: ${item.extras.map(e => e.nombre).join(", ")}`);
@@ -558,8 +592,9 @@ export default function PaginaCliente() {
       tipo: t,
       pago,
       notas: notas || "",
-      items: carrito.map(i => (descuentoHoy || promoActiva) ? { ...i, precio: precioItem(i) } : i),
+      items: carrito.map(i => (descuentoHoy || promoActiva || hayDescuentoFds) ? { ...i, precio: precioItem(i) } : i),
       total: totalFinal,
+      ...(hayDescuentoFds ? { descuentoFdsAplicado: true } : {}),
       ...(descuentoHoy ? { descuentoHoyAplicado: true } : {}),
       ...(promoActiva ? { promoAplicada: true } : {}),
       ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
