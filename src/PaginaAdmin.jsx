@@ -142,14 +142,78 @@ function FotoUpload({ tipo, id }) {
 
 // ── Sección editable ───────────────────────────────────────────────
 function SeccionItems({ titulo, icon, items, onUpdate, tipoFoto, mostrarSimDoTri = false }) {
+  const tieneDetalle = !mostrarSimDoTri && items.some(i => i.detalle !== undefined);
+  const [nuevo, setNuevo] = useState({ nombre: "", desc: "", detalle: "", precio: "", simple: "", doble: "", triple: "" });
+
   function set(id, campo, valor) { onUpdate(items.map(i => i.id === id ? { ...i, [campo]: valor } : i)); }
+
+  function agregar() {
+    if (!nuevo.nombre.trim()) return;
+    const id = `custom_${Date.now()}`;
+    let item;
+    if (mostrarSimDoTri) {
+      item = { id, nombre: nuevo.nombre.trim(), tag: null, desc: nuevo.desc.trim(), simple: parseFloat(nuevo.simple) || 0, doble: parseFloat(nuevo.doble) || 0, triple: parseFloat(nuevo.triple) || 0, disponible: true };
+    } else {
+      item = { id, nombre: nuevo.nombre.trim(), precio: parseFloat(nuevo.precio) || 0, disponible: true };
+      if (tieneDetalle) item.detalle = nuevo.detalle.trim();
+    }
+    onUpdate([...items, item]);
+    setNuevo({ nombre: "", desc: "", detalle: "", precio: "", simple: "", doble: "", triple: "" });
+  }
+
+  function eliminar(id) {
+    if (!confirm("¿Eliminar este item?")) return;
+    onUpdate(items.filter(i => i.id !== id));
+  }
+
   return (
     <div style={{ marginBottom: 28 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: "#1a3a25", marginBottom: 12 }}>{icon} {titulo}</div>
+
+      {/* Formulario agregar nuevo */}
+      <div style={{ ...G.card, background: "#f0fdf4", border: "1px solid #86efac", marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: "#1a3a25", marginBottom: 10 }}>+ Agregar nuevo</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input style={{ ...G.input, flex: "2 1 140px" }} placeholder="Nombre *"
+            value={nuevo.nombre} onChange={e => setNuevo(p => ({ ...p, nombre: e.target.value }))}
+            onKeyDown={e => e.key === "Enter" && agregar()} />
+          {mostrarSimDoTri && (
+            <input style={{ ...G.input, flex: "2 1 180px" }} placeholder="Descripción"
+              value={nuevo.desc} onChange={e => setNuevo(p => ({ ...p, desc: e.target.value }))} />
+          )}
+          {tieneDetalle && (
+            <input style={{ ...G.input, flex: "2 1 140px" }} placeholder="Detalle"
+              value={nuevo.detalle} onChange={e => setNuevo(p => ({ ...p, detalle: e.target.value }))} />
+          )}
+          {mostrarSimDoTri ? (
+            [["simple","Simple"],["doble","Doble"],["triple","Triple"]].map(([k, l]) => (
+              <div key={k} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontSize: 10, color: "#888" }}>{l}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <span style={{ fontSize: 12, color: "#888" }}>$</span>
+                  <input type="number" style={{ ...G.input, width: 90, textAlign: "right" }} placeholder="0"
+                    value={nuevo[k]} onChange={e => setNuevo(p => ({ ...p, [k]: e.target.value }))} />
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 12, color: "#888" }}>$</span>
+              <input type="number" style={{ ...G.input, width: 100, textAlign: "right" }} placeholder="Precio"
+                value={nuevo.precio} onChange={e => setNuevo(p => ({ ...p, precio: e.target.value }))} />
+            </div>
+          )}
+          <button style={G.btn()} onClick={agregar}>✅ Agregar</button>
+        </div>
+      </div>
+
+      {items.length === 0 && (
+        <div style={{ textAlign: "center", padding: "30px 0", color: "#aaa", fontSize: 14 }}>No hay items — agregá uno arriba</div>
+      )}
       {items.map(item => (
         <div key={item.id} style={{ ...G.card, opacity: item.disponible ? 1 : 0.55 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-            <FotoUpload tipo={tipoFoto} id={item.id} />
+            {tipoFoto && <FotoUpload tipo={tipoFoto} id={item.id} />}
             <div style={{ flex: "2 1 160px", display: "flex", flexDirection: "column", gap: 6 }}>
               <input style={{ ...G.input, width: "100%", fontWeight: 700, fontSize: 14 }}
                 value={item.nombre} onChange={e => set(item.id, "nombre", e.target.value)} />
@@ -185,6 +249,7 @@ function SeccionItems({ titulo, icon, items, onUpdate, tipoFoto, mostrarSimDoTri
             <button style={G.btn(item.disponible ? "#f59e0b" : "#1a7a3a")} onClick={() => set(item.id, "disponible", !item.disponible)}>
               {item.disponible ? "Ocultar" : "Mostrar"}
             </button>
+            <button style={G.btn("#dc2626")} onClick={() => eliminar(item.id)}>✕</button>
           </div>
         </div>
       ))}

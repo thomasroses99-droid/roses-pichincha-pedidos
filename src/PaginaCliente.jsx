@@ -45,6 +45,16 @@ function precioConPromo(item) {
   return item.tamano === "Simple" ? PROMO_SIMPLE : PROMO_DOBLE;
 }
 
+// ── Descuento especial de un solo día (20% en todos los medios de pago) ──
+const DESCUENTO_HOY_PCT = 0.20;
+function esDescuentoHoy() {
+  const h = new Date(); const y = h.getFullYear(), m = h.getMonth() + 1, d = h.getDate();
+  return y === 2026 && m === 7 && d === 7;
+}
+function precioConDescuentoHoy(item) {
+  return Math.round(item.precio * (1 - DESCUENTO_HOY_PCT));
+}
+
 
 const BURGER_IMGS = {
   "CHEESEBURGER":  "/images/burgers/cheeseburger.jpg",
@@ -303,10 +313,12 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
     }, 1000);
   }
 
-  const promoActiva = esDiaPromo() && pago === "Efectivo";
-  const subtotal    = carrito.reduce((s, i) => s + (promoActiva ? precioConPromo(i) : i.precio), 0);
-  const ahorroPromo = promoActiva ? carrito.reduce((s, i) => s + (i.precio - precioConPromo(i)), 0) : 0;
-  const hayPromo    = promoActiva && ahorroPromo > 0;
+  const descuentoHoy = esDescuentoHoy();
+  const promoActiva = !descuentoHoy && esDiaPromo() && pago === "Efectivo";
+  const precioItem = i => descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+  const subtotal    = carrito.reduce((s, i) => s + precioItem(i), 0);
+  const ahorroPromo = (promoActiva || descuentoHoy) ? carrito.reduce((s, i) => s + (i.precio - precioItem(i)), 0) : 0;
+  const hayPromo    = (promoActiva || descuentoHoy) && ahorroPromo > 0;
   const envioObj   = envios?.find(e => e.id === localidad);
   const costoEnvio = tipo === "delivery" && envioObj ? envioObj.precio : 0;
   const total      = subtotal + costoEnvio;
@@ -365,7 +377,7 @@ function PantallaCheckout({ carrito, onQuitar, tipo, setTipo, zona, envios, onCo
           )}
           {hayPromo && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: G, fontWeight: 700 }}>🎉 Precio {esHotSale() ? "Hot Sale" : "promo"} aplicado</span>
+              <span style={{ fontSize: 12, color: G, fontWeight: 700 }}>🎉 {descuentoHoy ? "20% OFF de hoy aplicado" : `Precio ${esHotSale() ? "Hot Sale" : "promo"} aplicado`}</span>
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
@@ -466,7 +478,8 @@ export default function PaginaCliente() {
   const [cantSueltas, setCant]      = useState({});
   const [confirmado, setConfirmado] = useState(null); // { waUrl, numeroPedido }
   const [showHotSale, setShowHotSale] = useState(esHotSale());
-  const [showBanner,  setShowBanner]  = useState(!esHotSale() && esDiaPromo());
+  const [showDescuentoHoy, setShowDescuentoHoy] = useState(esDescuentoHoy());
+  const [showBanner,  setShowBanner]  = useState(!esHotSale() && !esDescuentoHoy() && esDiaPromo());
 
   useEffect(() => {
     const u1 = subscribeMenu(d => setMenu(d));
@@ -504,21 +517,24 @@ export default function PaginaCliente() {
   }
 
   async function confirmarPedido({ nombre, telefono, dir, localidad, costoEnvio, localidadNombre, tipo: t, pago, notas, coords }) {
-    const promoActiva = esDiaPromo() && pago === "Efectivo";
-    const subtotal = carrito.reduce((s, i) => s + (promoActiva ? precioConPromo(i) : i.precio), 0);
+    const descuentoHoy = esDescuentoHoy();
+    const promoActiva = !descuentoHoy && esDiaPromo() && pago === "Efectivo";
+    const precioItem = i => descuentoHoy ? precioConDescuentoHoy(i) : (promoActiva ? precioConPromo(i) : i.precio);
+    const subtotal = carrito.reduce((s, i) => s + precioItem(i), 0);
     const totalFinal = subtotal + (costoEnvio || 0);
     const lineas = [`🍔 *NUEVO PEDIDO - Roses Pichincha*`, ""];
-    if (promoActiva) lineas.push("🔥 *PROMO EFECTIVO*", "");
+    if (descuentoHoy) lineas.push("🎉 *20% OFF DE HOY - TODOS LOS MEDIOS DE PAGO*", "");
+    else if (promoActiva) lineas.push("🔥 *PROMO EFECTIVO*", "");
     lineas.push("📋 *DETALLE:*");
     carrito.forEach(item => {
       if (item.tipo === "burger") {
-        const pItem = promoActiva ? precioConPromo(item) : item.precio;
+        const pItem = precioItem(item);
         lineas.push(`• 🍔 ${item.nombre} (${item.tamano}) — ${fmt(pItem)}`);
         lineas.push(`   ↳ Medallón: ${item.medallon === "vegetariano" ? "🥦 Vegetariano" : "🥩 Carne"}`);
         if (item.acomp) lineas.push(`   ↳ + ${item.acomp.nombre}`);
         if (item.extras?.length) lineas.push(`   ↳ Extras: ${item.extras.map(e => e.nombre).join(", ")}`);
         if (item.aclaracion) lineas.push(`   ↳ Aclaración: ${item.aclaracion}`);
-      } else { lineas.push(`• ${item.tipo === "guar" ? "🍟" : "🥤"} ${item.nombre} — ${fmt(item.precio)}`); }
+      } else { lineas.push(`• ${item.tipo === "guar" ? "🍟" : "🥤"} ${item.nombre} — ${fmt(precioItem(item))}`); }
     });
     lineas.push("", `👤 *Cliente:* ${nombre}`);
     lineas.push(`📱 *Teléfono:* ${telefono}`);
@@ -542,8 +558,10 @@ export default function PaginaCliente() {
       tipo: t,
       pago,
       notas: notas || "",
-      items: carrito.map(i => promoActiva ? { ...i, precio: precioConPromo(i) } : i),
+      items: carrito.map(i => (descuentoHoy || promoActiva) ? { ...i, precio: precioItem(i) } : i),
       total: totalFinal,
+      ...(descuentoHoy ? { descuentoHoyAplicado: true } : {}),
+      ...(promoActiva ? { promoAplicada: true } : {}),
       ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
     };
 
@@ -639,6 +657,24 @@ export default function PaginaCliente() {
             <button onClick={() => setShowHotSale(false)}
               style={{ position: "absolute", bottom: 28, left: "50%", transform: "translateX(-50%)", background: "#cc0000", border: "none", borderRadius: 14, padding: "16px 48px", fontWeight: 900, fontSize: 16, color: "#fff", cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 4px 20px #0006" }}>
               ¡Ver menú!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BANNER 20% OFF DE HOY ── */}
+      {showDescuentoHoy && (
+        <div style={{ position: "fixed", inset: 0, background: "#000b", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 20px" }}
+          onClick={() => setShowDescuentoHoy(false)}>
+          <div style={{ background: "#FDFAF5", borderRadius: 24, padding: "32px 28px", width: "100%", maxWidth: 380, textAlign: "center", boxShadow: "0 20px 60px #0005" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, color: G, textTransform: "uppercase", marginBottom: 4 }}>Solo por hoy</div>
+            <div style={{ fontSize: 32, fontWeight: 900, color: GD, fontFamily: HEAD, lineHeight: 1.1, marginBottom: 4, letterSpacing: 2 }}>20% OFF</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#888", marginBottom: 24 }}>En todo el pedido · Cualquier medio de pago</div>
+            <button onClick={() => setShowDescuentoHoy(false)}
+              style={{ background: G, border: "none", borderRadius: 14, padding: "16px 48px", fontWeight: 900, fontSize: 16, color: "#fff", cursor: "pointer", whiteSpace: "nowrap", width: "100%" }}>
+              ¡Pedir ahora!
             </button>
           </div>
         </div>
