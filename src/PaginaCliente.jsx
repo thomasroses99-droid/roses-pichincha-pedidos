@@ -24,8 +24,8 @@ const HEAD = "'Barlow Condensed', sans-serif";
 const BODY = "'Barlow', sans-serif";
 
 // ── Promo Hot Sale ──────────────────────────────────────────────────
-const PROMO_SIMPLE = 12000;
-const PROMO_DOBLE  = 14000;
+const PROMO_SIMPLE = 12500;
+const PROMO_DOBLE  = 14500;
 function esHotSale() {
   const h = new Date(); const y = h.getFullYear(), m = h.getMonth()+1, d = h.getDate();
   return y === 2026 && m === 5 && d >= 11 && d <= 13;
@@ -37,12 +37,14 @@ function esDiaPromo() {
 function itemCalificaPromo(item) {
   return item.tipo === "burger" &&
     (item.tamano === "Simple" || item.tamano === "Doble") &&
-    item.acomp?.nombre?.toLowerCase().includes("papa");
+    item.acomp?.nombre?.trim().toLowerCase() === "papas fritas" &&
+    !(item.extras || []).some(e => e.nombre?.toLowerCase().includes("medall"));
 }
 function precioConPromo(item) {
   if (!itemCalificaPromo(item)) return item.precio;
-  if (esHotSale()) return item.tamano === "Simple" ? 11000 : 12500;
-  return item.tamano === "Simple" ? PROMO_SIMPLE : PROMO_DOBLE;
+  const ext = (item.extras || []).reduce((s, e) => s + (e.precio || 0), 0);
+  if (esHotSale()) return (item.tamano === "Simple" ? 11000 : 12500) + ext;
+  return (item.tamano === "Simple" ? PROMO_SIMPLE : PROMO_DOBLE) + ext;
 }
 
 // ── Descuento especial de un solo día (20% en todos los medios de pago) ──
@@ -731,17 +733,17 @@ export default function PaginaCliente() {
                   <div style={{ fontWeight: 900, fontSize: 16, color: GD, fontFamily: HEAD }}>Combo Simple</div>
                   <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Burger simple + papas fritas</div>
                 </div>
-                <div style={{ fontWeight: 900, fontSize: 22, color: G, fontFamily: HEAD }}>$12.000</div>
+                <div style={{ fontWeight: 900, fontSize: 22, color: G, fontFamily: HEAD }}>$12.500</div>
               </div>
               <div style={{ background: GL, border: `2px solid ${G}`, borderRadius: 16, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ fontWeight: 900, fontSize: 16, color: GD, fontFamily: HEAD }}>Combo Doble</div>
                   <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Burger doble + papas fritas</div>
                 </div>
-                <div style={{ fontWeight: 900, fontSize: 22, color: G, fontFamily: HEAD }}>$14.000</div>
+                <div style={{ fontWeight: 900, fontSize: 22, color: G, fontFamily: HEAD }}>$14.500</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>Válido para cualquier hamburguesa de la carta<br />abonando en efectivo</div>
+            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>Válido para cualquier hamburguesa de la carta<br />abonando en efectivo<br />Extras se cobran aparte · No incluye medallón extra</div>
             <button onClick={() => setShowBanner(false)}
               style={{ width: "100%", background: GD, border: "none", borderRadius: 14, padding: "16px", fontWeight: 900, fontSize: 16, color: GL, cursor: "pointer", fontFamily: HEAD, letterSpacing: 1 }}>
               ¡Ver menú!
